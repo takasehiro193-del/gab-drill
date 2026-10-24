@@ -169,7 +169,7 @@ function home(){cur=null;app.replaceChildren();
   app.append(el('div',{class:'eyebrow'},'C-GAB 解答集 · 暗記ドリル'),el('h1',null,'分野を選んで解く'),
     el('p',{class:'lead'},'言語と英語は大問をランダムに選び、その小問をまとめて解きます。非言語は1問ずつランダムに出題します。'));
   const seg=el('div',{class:'seg',role:'group','aria-label':'出題範囲'});
-  for(const [m,l] of [['all','すべて'],['miss','間違えた問題だけ']])seg.append(el('button',{'aria-pressed':String(mode===m),onclick:()=>{mode=m;home();}},l));
+  for(const [m,l] of [['all','すべて'],['seen','解いた問題'],['miss','間違えた問題']])seg.append(el('button',{'aria-pressed':String(mode===m),onclick:()=>{mode=m;home();}},l));
   const list=el('div',{class:'sections'});
   for(const sec of ['gen','non','eng']){const st=stats(sec);const n=groups(sec).length;const pct=st.tot?Math.round(st.ok/st.tot*100):0;
     list.append(el('button',{class:'sec',onclick:()=>start(sec)},el('span',{class:'glyph','aria-hidden':'true'},SEC[sec].glyph),
@@ -177,21 +177,22 @@ function home(){cur=null;app.replaceChildren();
       el('span',{class:'go','aria-hidden':'true'},'→')));}
   app.append(list,el('div',{class:'opts'},seg,el('button',{class:'link',onclick:resetConfirm},'記録をリセット')));
   app.append(el('div',{class:'legend'},el('b',null,'言語の選択肢'),'　A：本文から明らかに正しい　B：明らかに間違っている　C：本文だけでは判断できない',el('br'),
-    '「設問文なし」の小問は、設問1→4の解答の並びを当てる問題です。英語・非言語のダミー選択肢は他の問題の解答や数値をずらしたもので、正解は解答集の「最有力」解答です。'));}
+    '出題範囲：「解いた問題」は一度でも答えを選んだ問題（正解・不正解とも）、「間違えた問題」は最後に答えたとき不正解だった問題だけから出題します。',el('br'),'「設問文なし」の小問は、設問1→4の解答の並びを当てる問題です。英語・非言語のダミー選択肢は他の問題の解答や数値をずらしたもので、正解は解答集の「最有力」解答です。'));}
 let resetArmed=false;
 function resetConfirm(e){const b=e.currentTarget;if(!resetArmed){resetArmed=true;b.textContent='もう一度押すとリセット';setTimeout(()=>{resetArmed=false;if(b.isConnected)b.textContent='記録をリセット';},3000);return;}S={wrong:{},done:{}};save();resetArmed=false;home();}
 
 /* ---------- quiz ---------- */
 function start(sec){const gs=groups(sec);let idx=gs.map((_,i)=>i);
   if(mode==='miss')idx=idx.filter(i=>keysOf(sec,gs[i]).some(k=>S.wrong[k]));
+  if(mode==='seen')idx=idx.filter(i=>keysOf(sec,gs[i]).some(k=>S.done[k]||S.wrong[k]));
   cur={sec,deck:shuffle(idx),pos:0,total:idx.length};show();window.scrollTo(0,0);}
 function show(){const {sec}=cur;app.replaceChildren();
   const top=el('div',{class:'top'},el('button',{class:'back',onclick:home},'← 分野選択'),el('span',{class:'count'},''));
   app.append(top);
-  if(!cur.deck.length){app.append(el('div',{class:'empty'},mode==='miss'?'間違えた問題はありません。':'問題がありません。'));return;}
+  if(!cur.deck.length){app.append(el('div',{class:'empty'},mode==='miss'?'間違えた問題はありません。':mode==='seen'?'まだ解いた問題がありません。「すべて」で解くと、ここに出てくるようになります。':'問題がありません。'));return;}
   if(cur.pos>=cur.deck.length){cur.deck=shuffle(cur.deck);cur.pos=0;}
   const g=groups(sec)[cur.deck[cur.pos]];
-  top.lastChild.textContent=`${SEC[sec].name} ${cur.pos+1} / ${cur.total}${mode==='miss'?'（復習）':''}`;
+  top.lastChild.textContent=`${SEC[sec].name} ${cur.pos+1} / ${cur.total}${{miss:'（間違えた問題）',seen:'（解いた問題）'}[mode]||''}`;
   const sheet=el('div',{class:'sheet'});
   const items=sec==='non'?[g.single]:g.items;
   if(sec==='non'){sheet.append(el('div',{class:'passage'},el('div',{class:'no'},`No.${g.no}`),el('div',{class:'ttl'},g.single.q),g.single.alt&&el('div',{class:'alt'},'別表記：'+g.single.alt)));}
@@ -222,7 +223,7 @@ function show(){const {sec}=cur;app.replaceChildren();
     btns.forEach(b=>b.addEventListener('click',()=>finish(b)));reveals.push(()=>finish(null));
     wrap.append(...btns);box.append(wrap,fb);sheet.append(box);});
   const next=()=>{cur.pos++;show();window.scrollTo(0,0);};
-  function renderFoot(){foot.replaceChildren(el('div',{class:'score'},`${correct} / ${items.length} 正解`,el('small',null,correct===items.length?'全問正解':'間違えた設問は「間違えた問題だけ」で復習できます')),
+  function renderFoot(){foot.replaceChildren(el('div',{class:'score'},`${correct} / ${items.length} 正解`,el('small',null,correct===items.length?'全問正解':'間違えた設問は「間違えた問題」で復習できます')),
     el('div',{class:'acts'},el('button',{class:'btn ghost',onclick:()=>{show();window.scrollTo(0,0);}},'もう一度解く'),el('button',{class:'btn',id:'nextBtn',onclick:next},sec==='non'?'次の問題 →':'次の大問 →')));document.getElementById('nextBtn').focus({preventScroll:true});}
   foot.append(el('button',{class:'btn ghost',onclick:()=>reveals.forEach(f=>f())},'答えを表示'),el('button',{class:'link',onclick:next},'スキップ'));
   app.append(sheet,foot);}
