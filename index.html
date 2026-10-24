@@ -194,11 +194,11 @@ function show(){const {sec}=cur;app.replaceChildren();
   const g=groups(sec)[cur.deck[cur.pos]];
   top.lastChild.textContent=`${SEC[sec].name} ${cur.pos+1} / ${cur.total}${{miss:'（間違えた問題）',seen:'（解いた問題）'}[mode]||''}`;
   const sheet=el('div',{class:'sheet'});
-  const items=sec==='non'?[g.single]:g.items;
+  const order=sec==='non'?[0]:shuffle(g.items.map((_,i)=>i));const items=sec==='non'?[g.single]:order.map(i=>g.items[i]);
   if(sec==='non'){sheet.append(el('div',{class:'passage'},el('div',{class:'no'},`No.${g.no}`),el('div',{class:'ttl'},g.single.q),g.single.alt&&el('div',{class:'alt'},'別表記：'+g.single.alt)));}
   else sheet.append(el('div',{class:'passage'},el('div',{class:'no'},`大問 No.${g.no}`),el('div',{class:'ttl'},g.t),g.alt&&el('div',{class:'alt'},'別表記：'+g.alt)));
   let answered=0,correct=0;const foot=el('div',{class:'foot'});const reveals=[];
-  items.forEach((it,i)=>{const k=sec==='non'?key(sec,g):key(sec,g,i);
+  items.forEach((it,pos)=>{const i=order[pos];const k=sec==='non'?key(sec,g):key(sec,g,i);
     const box=el('div',{class:'item'});
     if(sec!=='non'){const label=it.seq?'並び':it.n==null?'設問?':'設問'+it.n;
       box.append(el('div',{class:'qhead'},el('span',{class:'qnum'},label),el('span',{class:'qtext'},it.seq?'設問文なし：設問1→4の解答の並びは？':it.q)));
