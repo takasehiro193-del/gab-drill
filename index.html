@@ -118,8 +118,9 @@ const SEC={gen:{name:'言語',glyph:'言',unit:'大問'},non:{name:'非言語',g
 const ABC=['A','B','C'];
 const GEN_LBL={A:'正しい',B:'間違っている',C:'判断できない'};
 const STORE='cgab-drill-v1';
-let S={wrong:{},done:{}};
+let S={wrong:{},done:{},cnt:{}};
 try{const v=JSON.parse(localStorage.getItem(STORE)||'null');if(v&&v.wrong)S=v;}catch(e){}
+if(!S.cnt){S.cnt={};for(const k in S.done)S.cnt[k]=[1,1];for(const k in S.wrong)S.cnt[k]=[1,0];}
 function save(){try{localStorage.setItem(STORE,JSON.stringify(S));}catch(e){}}
 let mode='all';
 let cur=null;
@@ -130,7 +131,7 @@ function pick(a){return a[Math.floor(Math.random()*a.length)];}
 const key=(sec,g,i)=>sec==='non'?`non-${g.no}`:`${sec}-${g.no}-${i}`;
 function groups(sec){return sec==='non'?DATA.non.map(q=>({no:q.no,single:q})):DATA[sec];}
 function keysOf(sec,g){return sec==='non'?[key(sec,g)]:g.items.map(it=>key(sec,g,it._i));}
-function stats(sec){let tot=0,ok=0,ng=0;for(const g of groups(sec))for(const k of keysOf(sec,g)){tot++;if(S.wrong[k])ng++;else if(S.done[k])ok++;}return{tot,ok,ng};}
+function stats(sec){let tot=0,ok=0,ng=0,a=0,c=0;for(const g of groups(sec))for(const k of keysOf(sec,g)){tot++;if(S.wrong[k])ng++;else if(S.done[k])ok++;const v=S.cnt[k];if(v){a+=v[0];c+=v[1];}}return{tot,ok,ng,a,c};}
 
 /* ---------- choice builders ---------- */
 const seqPool={};for(const g of DATA.gen)for(const it of g.items)if(it.seq)for(const s of it.acc)(seqPool[s.length]=seqPool[s.length]||new Set()).add(s);
@@ -174,26 +175,30 @@ function home(){cur=null;app.replaceChildren();
   const list=el('div',{class:'sections'});
   for(const sec of ['gen','non','eng']){const st=stats(sec);const n=groups(sec).length;const pct=st.tot?Math.round(st.ok/st.tot*100):0;
     list.append(el('button',{class:'sec',onclick:()=>start(sec)},el('span',{class:'glyph','aria-hidden':'true'},SEC[sec].glyph),
-      el('span',null,el('h2',null,SEC[sec].name),el('span',{class:'meta'},sec==='non'?`${n}問`:`${n}大問・設問${st.tot}`,` ／ 正解済 ${st.ok}・要復習 ${st.ng}`),el('div',{class:'bar'},el('i',{style:`width:${pct}%`}))),
+      el('span',null,el('h2',null,SEC[sec].name),el('span',{class:'meta'},sec==='non'?`${n}問`:`${n}大問・設問${st.tot}`,` ／ 正解済 ${st.ok}・要復習 ${st.ng}`+(st.a?`・正答率 ${Math.round(st.c/st.a*100)}%`:'')),el('div',{class:'bar'},el('i',{style:`width:${pct}%`}))),
       el('span',{class:'go','aria-hidden':'true'},'→')));}
   app.append(list,el('div',{class:'opts'},seg,el('button',{class:'link',onclick:resetConfirm},'記録をリセット')));
   app.append(el('div',{class:'legend'},el('b',null,'言語の選択肢'),'　A：本文から明らかに正しい　B：明らかに間違っている　C：本文だけでは判断できない',el('br'),
-    '出題範囲：「解いた問題」は一度でも答えを選んだ問題（正解・不正解とも）、「間違えた問題」は最後に答えたとき不正解だった問題だけから出題します。',el('br'),'英語・非言語のダミー選択肢は他の問題の解答や数値をずらしたもので、正解は解答集の「最有力」解答です。'));}
+    '出題順：まだ解いていない・解いた回数が少ない問題から順に出し、回数が同じなら正答率の低い問題を先に出します。',el('br'),'出題範囲：「解いた問題」は一度でも答えを選んだ問題（正解・不正解とも）、「間違えた問題」は最後に答えたとき不正解だった問題だけから出題します。',el('br'),'英語・非言語のダミー選択肢は他の問題の解答や数値をずらしたもので、正解は解答集の「最有力」解答です。'));}
 let resetArmed=false;
-function resetConfirm(e){const b=e.currentTarget;if(!resetArmed){resetArmed=true;b.textContent='もう一度押すとリセット';setTimeout(()=>{resetArmed=false;if(b.isConnected)b.textContent='記録をリセット';},3000);return;}S={wrong:{},done:{}};save();resetArmed=false;home();}
+function resetConfirm(e){const b=e.currentTarget;if(!resetArmed){resetArmed=true;b.textContent='もう一度押すとリセット';setTimeout(()=>{resetArmed=false;if(b.isConnected)b.textContent='記録をリセット';},3000);return;}S={wrong:{},done:{},cnt:{}};save();resetArmed=false;home();}
 
 /* ---------- quiz ---------- */
 function start(sec){const gs=groups(sec);let idx=gs.map((_,i)=>i);
   if(mode==='miss')idx=idx.filter(i=>keysOf(sec,gs[i]).some(k=>S.wrong[k]));
   if(mode==='seen')idx=idx.filter(i=>keysOf(sec,gs[i]).some(k=>S.done[k]||S.wrong[k]));
-  cur={sec,deck:shuffle(idx),pos:0,total:idx.length};show();window.scrollTo(0,0);}
+  cur={sec,pool:idx,shown:new Set(),current:null,total:idx.length};show();window.scrollTo(0,0);}
+/* 出題順：①小問の最少解答回数が少ない大問 → ②正答率が低い大問 → ③同点はランダム。今回のセッションで出した大問は一巡するまで出さない */
+function prio(sec,g){let mn=Infinity,a=0,c=0;for(const k of keysOf(sec,g)){const v=S.cnt[k]||[0,0];mn=Math.min(mn,v[0]);a+=v[0];c+=v[1];}return[mn,a?c/a:0];}
+function nextGroup(){const gs=groups(cur.sec);let cand=cur.pool.filter(i=>!cur.shown.has(i));if(!cand.length){cur.shown.clear();cand=cur.pool.slice();}
+  const ps=cand.map(i=>({i,p:prio(cur.sec,gs[i]),r:Math.random()}));ps.sort((x,y)=>x.p[0]-y.p[0]||x.p[1]-y.p[1]||x.r-y.r);return ps[0].i;}
 function show(){const {sec}=cur;app.replaceChildren();
   const top=el('div',{class:'top'},el('button',{class:'back',onclick:home},'← 分野選択'),el('span',{class:'count'},''));
   app.append(top);
-  if(!cur.deck.length){app.append(el('div',{class:'empty'},mode==='miss'?'間違えた問題はありません。':mode==='seen'?'まだ解いた問題がありません。「すべて」で解くと、ここに出てくるようになります。':'問題がありません。'));return;}
-  if(cur.pos>=cur.deck.length){cur.deck=shuffle(cur.deck);cur.pos=0;}
-  const g=groups(sec)[cur.deck[cur.pos]];
-  top.lastChild.textContent=`${SEC[sec].name} ${cur.pos+1} / ${cur.total}${{miss:'（間違えた問題）',seen:'（解いた問題）'}[mode]||''}`;
+  if(!cur.pool.length){app.append(el('div',{class:'empty'},mode==='miss'?'間違えた問題はありません。':mode==='seen'?'まだ解いた問題がありません。「すべて」で解くと、ここに出てくるようになります。':'問題がありません。'));return;}
+  if(cur.current==null){cur.current=nextGroup();cur.shown.add(cur.current);}
+  const g=groups(sec)[cur.current];
+  top.lastChild.textContent=`${SEC[sec].name} ${cur.shown.size} / ${cur.total}${{miss:'（間違えた問題）',seen:'（解いた問題）'}[mode]||''}`;
   const sheet=el('div',{class:'sheet'});
   const order=sec==='non'?[0]:shuffle(g.items.map((_,i)=>i));const items=sec==='non'?[g.single]:order.map(i=>g.items[i]);
   if(sec==='non'){sheet.append(el('div',{class:'passage'},el('div',{class:'no'},`No.${g.no}`),el('div',{class:'ttl'},g.single.q),g.single.alt&&el('div',{class:'alt'},'別表記：'+g.single.alt)));}
@@ -214,16 +219,17 @@ function show(){const {sec}=cur;app.replaceChildren();
       btns.forEach(b=>{b.disabled=true;if(b._c.ok)b.classList.add('right');});
       if(chosen){chosen.classList.add('pick');if(!chosen._c.ok)chosen.classList.add('wrong');}
       const ok=chosen&&chosen._c.ok;if(ok)correct++;
-      if(chosen){if(ok){delete S.wrong[k];S.done[k]=1;}else{S.wrong[k]=1;}save();}
+      if(chosen){if(ok){delete S.wrong[k];S.done[k]=1;}else{S.wrong[k]=1;}const v=S.cnt[k]||[0,0];S.cnt[k]=[v[0]+1,v[1]+(ok?1:0)];save();}
       fb.hidden=false;
       fb.append(el('div',{class:'verdict '+(ok?'ok':'ng')},chosen?(ok?'正解':'不正解'):'解答'),
         el('div',{class:'ans'},'解答集の答え：',it.a));
+      if(S.cnt[k])fb.append(el('div',{class:'note'},`この設問の成績：${S.cnt[k][0]}回中${S.cnt[k][1]}回正解（正答率${Math.round(S.cnt[k][1]/S.cnt[k][0]*100)}%）`));
       if(it.cf)fb.append(el('div',{class:'note'},el('span',{class:'chip'},'食い違いあり'),it.bd));
       if(it.m)fb.append(el('div',{class:'note'},'備考：'+it.m));
       if(answered===items.length)renderFoot();}
     btns.forEach(b=>b.addEventListener('click',()=>finish(b)));reveals.push(()=>finish(null));
     wrap.append(...btns);box.append(wrap,fb);sheet.append(box);});
-  const next=()=>{cur.pos++;show();window.scrollTo(0,0);};
+  const next=()=>{cur.current=null;show();window.scrollTo(0,0);};
   function renderFoot(){foot.replaceChildren(el('div',{class:'score'},`${correct} / ${items.length} 正解`,el('small',null,correct===items.length?'全問正解':'間違えた設問は「間違えた問題」で復習できます')),
     el('div',{class:'acts'},el('button',{class:'btn ghost',onclick:()=>{show();window.scrollTo(0,0);}},'もう一度解く'),el('button',{class:'btn',id:'nextBtn',onclick:next},sec==='non'?'次の問題 →':'次の大問 →')));document.getElementById('nextBtn').focus({preventScroll:true});}
   foot.append(el('button',{class:'btn ghost',onclick:()=>reveals.forEach(f=>f())},'答えを表示'),el('button',{class:'link',onclick:next},'スキップ'));
